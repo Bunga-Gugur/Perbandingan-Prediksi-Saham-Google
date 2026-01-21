@@ -1,6 +1,7 @@
 # Perbandingan-Prediksi-Saham-Google
 Perbandingan Prediksi Saham Google menggunakan SimpleRNN, GRU, & LSTM Masih progress, belum inferensinya.
 Link Source Code: https://colab.research.google.com/drive/17K2J0MfQ5CbsXbPAvsZO1vUDdnCGC_Tl?usp=sharing
+Link Deploy Streamlit: https://perbandingan-prediksi-saham.streamlit.app/
 
 # Streamlit - Perbandingan Model
 
