@@ -17,7 +17,7 @@ pip install -r requirements.txt
 3. Jalankan aplikasi:
 
 ```bash
-streamlit run streamlit_app.py
+streamlit run uas_app.py
 ```
 
 File JSON harus berada di folder yang sama dengan `streamlit_app.py`.
