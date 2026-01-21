@@ -21,3 +21,8 @@ streamlit run streamlit_app.py
 ```
 
 File JSON harus berada di folder yang sama dengan `streamlit_app.py`.
+
+# Hasil singkat dari analisis
+<img width="704" height="450" alt="newplot" src="https://github.com/user-attachments/assets/ab1ea262-b480-4752-92cc-d4c99927414a" />
+<img width="704" height="450" alt="newplot (1)" src="https://github.com/user-attachments/assets/5a800341-4d39-4804-bc77-5d304b6de6d0" />
+<img width="963" height="255" alt="image" src="https://github.com/user-attachments/assets/f8ff2456-a5f1-4d5c-8f6a-bae0dd2acd29" />
