@@ -1,4 +1,4 @@
-#Perbandingan-Prediksi-Saham-Google
+# Perbandingan-Prediksi-Saham-Google
 # Streamlit - Perbandingan Model
 
 Cara menjalankan aplikasi Streamlit untuk membandingkan `hasil_simplernn2.json`, `hasil_gru2.json`, dan `hasil_lstm2.json`:
