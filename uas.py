@@ -1,179 +1,116 @@
-import streamlit as st
-import yfinance as yf
+import json
+from pathlib import Path
 import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+import streamlit as st
+import plotly.express as px
 
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# ==========================
-# CONFIG STREAMLIT
-# ==========================
-st.set_page_config(
-    page_title="Dashboard Prediksi Saham",
-    layout="wide"
-)
+def load_and_normalize(path: Path, model_name: str) -> pd.DataFrame:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    df = pd.DataFrame(data)
+    # detect columns
+    pred_col = next((c for c in df.columns if "pred" in c.lower()), None)
+    mae_col = next((c for c in df.columns if c.lower().startswith("mae")), None)
+    rmse_col = next((c for c in df.columns if "rmse" in c.lower()), None)
+    rename_map = {}
+    if pred_col:
+        rename_map[pred_col] = f"predicted_{model_name}"
+    if mae_col:
+        rename_map[mae_col] = f"mae_{model_name}"
+    if rmse_col:
+        rename_map[rmse_col] = f"rmse_{model_name}"
+    df = df.rename(columns=rename_map)
+    df["date"] = pd.to_datetime(df["date"])
+    # ensure real_price exists
+    if "real_price" not in df.columns:
+        st.warning(f"'real_price' column not found in {path}")
+    cols = [c for c in ["date", "real_price"] + list(rename_map.values()) if c in df.columns]
+    return df[cols]
 
-st.title("📈 Dashboard Prediksi Harga Saham")
-st.markdown("Aplikasi prediksi harga saham menggunakan **Regresi Linier** dan data dari **Yahoo Finance**.")
 
-# ==========================
-# SIDEBAR
-# ==========================
-st.sidebar.header("⚙️ Pengaturan")
+def main():
+    st.title("Perbandingan Model SimpleRNN vs GRU vs LSTM")
 
-ticker = st.sidebar.text_input(
-    "Masukkan Kode Saham (Ticker)",
-    value="GOOGL"
-)
+    base = Path(__file__).parent
+    files = {
+        "SimpleRNN": base / "hasil_simplernn2.json",
+        "GRU": base / "hasil_gru2.json",
+        "LSTM": base / "hasil_lstm2.json",
+    }
 
-forecast_days = st.sidebar.slider(
-    "Jumlah Hari Prediksi ke Depan",
-    min_value=1,
-    max_value=30,
-    value=5
-)
+    st.sidebar.header("Sumber data")
+    for name, p in files.items():
+        st.sidebar.write(f"- {name}: {p.name} ({'found' if p.exists() else 'missing'})")
 
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "📌 **Tentang Aplikasi**\n\n"
-    "Dashboard ini mengambil data saham historis dari Yahoo Finance "
-    "dan memprediksi harga penutupan (Close) menggunakan model Regresi Linier."
-)
+    dfs = {}
+    for name, p in files.items():
+        if p.exists():
+            dfs[name] = load_and_normalize(p, name.lower())
+        else:
+            st.error(f"File not found: {p}")
+            return
 
-# ==========================
-# LOAD DATA
-# ==========================
-@st.cache_data
-def load_data(ticker):
-    data = yf.download(ticker, start="2018-01-01")
-    return data
+    # Merge on date
+    merged = dfs["SimpleRNN"][["date", "real_price"]].copy()
+    for name, df in dfs.items():
+        # drop duplicate real_price if present
+        to_merge = df.drop(columns=["real_price"]) if "real_price" in df.columns else df
+        merged = merged.merge(to_merge, on="date", how="left")
 
-try:
-    data = load_data(ticker)
+    merged = merged.sort_values("date").reset_index(drop=True)
 
-    if data.empty:
-        st.error("Data tidak ditemukan. Periksa kembali kode saham.")
-        st.stop()
+    st.subheader("Ringkasan metrik rata-rata per model")
+    metrics = []
+    for name in files.keys():
+        mae_col = f"mae_{name.lower()}"
+        rmse_col = f"rmse_{name.lower()}"
+        pred_col = f"predicted_{name.lower()}"
+        if pred_col in merged.columns:
+            mape = ((merged[pred_col] - merged["real_price"]).abs() / merged["real_price"]).mean() * 100
+        else:
+            mape = None
+        metrics.append({
+            "model": name,
+            "mae": merged[mae_col].mean() if mae_col in merged.columns else None,
+            "rmse": merged[rmse_col].mean() if rmse_col in merged.columns else None,
+            "mape_%": mape,
+        })
 
-    st.subheader(f"📊 Data Historis Saham: {ticker}")
-    st.dataframe(data.tail())
+    metrics_df = pd.DataFrame(metrics)
+    st.table(metrics_df.set_index("model"))
 
-    # ==========================
-    # DOWNLOAD DATA CSV
-    # ==========================
-    csv = data.to_csv().encode("utf-8")
-    st.download_button(
-        label="⬇️ Download Data Historis (CSV)",
-        data=csv,
-        file_name=f"{ticker}_historical_data.csv",
-        mime="text/csv"
-    )
-
-    # ==========================
-    # PREPROCESSING
-    # ==========================
-    df = data[['Close']].copy()
-    df['Prediction'] = df['Close'].shift(-forecast_days)
-    df.dropna(inplace=True)
-
-    X = np.array(df[['Close']])
-    y = np.array(df['Prediction'])
-
-    # ==========================
-    # TRAIN TEST SPLIT
-    # ==========================
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, shuffle=False
-    )
-
-    # ==========================
-    # MODELING
-    # ==========================
-    model = LinearRegression()
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-
-    # ==========================
-    # METRICS
-    # ==========================
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = np.sqrt(mse)
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("MAE", f"{mae:.2f}")
-    col2.metric("MSE", f"{mse:.2f}")
-    col3.metric("RMSE", f"{rmse:.2f}")
-
-    # ==========================
-    # VISUALIZATION
-    # ==========================
-    st.subheader("📉 Visualisasi Harga Asli vs Prediksi")
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        y=y_test,
-        mode='lines',
-        name='Harga Asli'
-    ))
-
-    fig.add_trace(go.Scatter(
-        y=y_pred,
-        mode='lines',
-        name='Harga Prediksi'
-    ))
-
-    fig.update_layout(
-        xaxis_title="Index Data",
-        yaxis_title="Harga Saham",
-        hovermode="x unified"
-    )
-
+    st.subheader("Grafik: Harga riil vs Prediksi")
+    # prepare long format for plotting
+    plot_df = merged[["date", "real_price"] + [c for c in merged.columns if c.startswith("predicted_")]]
+    long = plot_df.melt(id_vars="date", var_name="series", value_name="price")
+    # rename series to nicer labels
+    long["model"] = long["series"].str.replace("predicted_", "", regex=False)
+    fig = px.line(long, x="date", y="price", color="model", title="Real vs Predicted")
+    # add real price as separate series if not included
+    fig.update_traces()
     st.plotly_chart(fig, use_container_width=True)
 
-    # ==========================
-    # FUTURE PREDICTION
-    # ==========================
-    st.subheader(f"🔮 Prediksi {forecast_days} Hari ke Depan")
+    st.subheader("Perbandingan MAE / RMSE")
+    metric_plot = metrics_df.melt(id_vars="model", value_vars=["mae", "rmse"], var_name="metric", value_name="value")
+    fig2 = px.bar(metric_plot, x="model", y="value", color="metric", barmode="group", title="MAE & RMSE rata-rata")
+    st.plotly_chart(fig2, use_container_width=True)
 
-    last_close = np.array(df[['Close']].tail(forecast_days))
-    future_prediction = model.predict(last_close)
+    st.subheader("Tabel data (potong 200 baris teratas)")
+    st.dataframe(merged.head(200))
 
-    future_df = pd.DataFrame({
-        "Hari": range(1, forecast_days + 1),
-        "Harga Prediksi": future_prediction
-    })
+    st.subheader("Analisis residual singkat")
+    select_model = st.selectbox("Pilih model untuk residual", list(files.keys()))
+    pred_col = f"predicted_{select_model.lower()}"
+    if pred_col in merged.columns:
+        merged["residual"] = merged[pred_col] - merged["real_price"]
+        fig3 = px.histogram(merged, x="residual", nbins=50, title=f"Distribusi residual - {select_model}")
+        st.plotly_chart(fig3, use_container_width=True)
+        fig4 = px.scatter(merged, x="real_price", y=pred_col, trendline="ols", title=f"Prediksi vs Riil - {select_model}")
+        st.plotly_chart(fig4, use_container_width=True)
+    else:
+        st.warning("Prediksi untuk model ini tidak tersedia di data.")
 
-    st.dataframe(future_df)
 
-    # ==========================
-    # EXPLANATION
-    # ==========================
-    st.markdown("---")
-    st.subheader("📘 Cara Kerja Regresi Linier")
-
-    st.markdown(
-        """
-        **Regresi Linier** adalah metode statistik yang digunakan untuk memodelkan hubungan
-        antara variabel independen (harga penutupan sebelumnya) dan variabel dependen
-        (harga di masa depan).
-
-        Dalam aplikasi ini:
-        - Model mempelajari pola hubungan harga saham berdasarkan data historis.
-        - Harga *Close* digunakan sebagai input utama.
-        - Data digeser (*shift*) untuk memprediksi harga beberapa hari ke depan.
-        - Model menghasilkan garis tren linier yang digunakan untuk melakukan prediksi.
-
-        ⚠️ **Catatan:**  
-        Prediksi ini bersifat edukatif dan tidak dapat dijadikan satu-satunya dasar
-        pengambilan keputusan investasi.
-        """
-    )
-
-except Exception as e:
-    st.error(f"Terjadi kesalahan: {e}")
+if __name__ == "__main__":
+    main()
